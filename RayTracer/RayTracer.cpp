@@ -8,264 +8,52 @@
 #include <GL/gl.h>
 #include <vector>
 #include "Object.h"
+#include "light.h"
 
+#define MAX_RAY_DEPTH 5
 std::vector<std::unique_ptr<object>> objects;
+std::vector<std::unique_ptr<light>> lights;
+Vec3f background_color(0.8);
+float ambient_intensity(0.4);
+float bias = 1e-4; // add some bias to the point from which we will be tracing
 
+int im_size = 800;
 
-typedef float point[3];
-//
-///**
-// * \brief Funkcja obliczająca punkt przecięcia promienia i powierzchni sfery
-// * \param p 
-// * \param v 
-// * \return 
-// */
-//int trace(float *p, float *v);
-
-/**
- * \brief Funkcja obliczająca oświetlenie punktu na powierzchni sfery według modelu Phonga
- */
-void phong(void);
-
-/**
- * \brief Funkcja obliczająca iloczyn skalarny dwóch wektorów
- * \param p1 
- * \param p2 
- * \return 
- */
-float dot_product(point p1, point p2);
-
-/**
- * \brief Funkcja normalizująca wektor
- * \param p 
- */
-void normalization(point p);
-
-/**
- * \brief Rozmiar obrazu w pikselach (obraz jest kwadratem)
- */
-int im_size = 400;
-
-int image_width = 400;
-int image_height = 400;
+int image_width = 800;
+int image_height = 800;
 float fov = 50;
 
-/**
- * \brief Rozmiar okna obserwatora
- */
 float viewport_size = 3.0;
+GLubyte pixel[1][1][3];          // składowe koloru rysowanego piksela
 
-
-// Położenie i parametry źródła światła
-
-float    light_position[] = { 3.0, 2.5, 5.0 };
-float    light_specular[] = { 1.0, 1.0, 0.0 };
-float    light_diffuse[] = { 0.0, 1.0, 1.0 };
-float    light_ambient[] = { 0.0, 0.0, 0.0 };
-
-
-// Promień i parametry rysowanej sfery
-
-float    sphere_radius = 1.0;
-float    sphere_specular[] = { 0.8, 0.8, 0.8 };
-float    sphere_diffuse[] = { 0.6, 0.7, 0.8 };
-float    sphere_ambient[] = { 1.0, 1.0, 1.0 };
-float    sphere_specular_shininess = 30.0;
-
-
-/**
- * \brief Parametry światła rozproszonego
- */
-float global_a[] = { 0.25, 0.15, 0.1 };
-
-
-// Parametry "śledzonego" promienia
-
-/**
- * \brief punkt, z którego wychodzi promień
- */
-float starting_point[3];
-
-/**
- * \brief wektor opisujący kierunek promienia
- */
-float starting_directions[] = { 0.0, 0.0, -1.0 };
-
-
-// Zmienne pomocnicze
-
-/**
- * \brief współrzędne (x,y,z) punktu przecięcia promienia i sfery
- */
-float inter[3];
-
-/**
- * \brief zmienna określająca, czy sfera została przecięta przez
- */
-int inters;
-
-/**
- * \brief składowe koloru dla oświetlonego punktu na powierzchni sfery
- */
-float inters_c[3];
-
-/**
- * \brief składowe koloru rysowanego piksela
- */
-GLubyte pixel[1][1][3];
-
-///**
-// * \brief Funkcja oblicza punkt przecięcia promienia i powierzchni sfery
-// * \param p punkt początkowy promienia
-// * \param v wektor opisujący kierunek biegu promienia
-// * \return 1 jeśli promień przecina sferę, 0 gdy nie przecina
-// */
-//int trace(float *p, float *v)
-//{
-//	float a, b, c, d, r;
-//
-//	a = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-//	b = 2 * (p[0] * v[0] + p[1] * v[1] + p[2] * v[2]);
-//	c = p[0] * p[0] + p[1] * p[1] + p[2] * p[2] - 1.0;
-//
-//	d = b * b - 4 * a*c;
-//
-//	if (d >= 0)                              // jest co najmniej jeden punkt przecięcia
-//	{
-//		r = (-b - sqrt(d)) / (2 * a);     // parametr dla bliższego punktu przecięcia
-//
-//		inter[0] = p[0] + r * v[0];    // współrzędne punktu przecięcia
-//		inter[1] = p[1] + r * v[1];
-//		inter[2] = p[2] + r * v[2];
-//
-//		return 1;                         // jest punkt przecięcia
-//	}
-//	else                                    // promień nie przecina sfery
-//		return 0;
-//}
-
-
-/**
- * \brief Funkcja oblicza oświetlenie punktu na powierzchni sfery używając modelu Phonga
- */
-void phong()
+bool trace(const Vec3f& orig, const Vec3f& dir, float& t_nearest, const object* &hit_object)
 {
-	float normal_vector[3];                      // wektor normalny do powierzchni
-	float light_vec[3];                             // wektor wskazujący źródeł
-	float reflection_vector[3];                  // wektor kierunku odbicia światła
-	float viewer_v[3] = { 0.0, 0.0, 1.0 };   // wektor kierunku obserwacji
-	float n_dot_l, v_dot_r;                      // zmienne pomocnicze
+	t_nearest = kInfinity;
 
-	normal_vector[0] = inter[0];         // wektor normalny do powierzchni sfery       
-	normal_vector[1] = inter[1];
-	normal_vector[2] = inter[2];
-
-	light_vec[0] = light_position[0] - inter[0]; // wektor wskazujący kierunek źródła
-	light_vec[1] = light_position[1] - inter[1];
-	light_vec[2] = light_position[2] - inter[2];
-
-	normalization(light_vec);                        // normalizacja wektora kierunku świecenia źródła           
-
-	n_dot_l = dot_product(light_vec, normal_vector);
-
-	reflection_vector[0] = 2 * (n_dot_l)*normal_vector[0] - light_vec[0];
-	reflection_vector[1] = 2 * (n_dot_l)*normal_vector[1] - light_vec[1];
-	reflection_vector[2] = 2 * (n_dot_l)*normal_vector[2] - light_vec[2];
-
-	// obliczenie wektora opisującego kierunek światła odbitego od punktu na powierzchni sfery
-	normalization(reflection_vector); // normalizacja wektora kierunku światła odbitego
-
-	v_dot_r = dot_product(reflection_vector, viewer_v);
-
-	if (v_dot_r < 0)                        // obserwator nie widzi oświetlanego punktu
-
-		v_dot_r = 0;
-
-	// sprawdzenie czy punkt na powierzchni sfery jest oświetlany przez źródło
-	if (n_dot_l > 0)     // punkt jest oświetlany,oświetlenie wyliczane jest ze wzorów dla modelu Phonga
+	for (auto &object : objects)
 	{
-		inters_c[0] = (sphere_diffuse[0] * light_diffuse[0] * n_dot_l + sphere_specular[0] * light_specular[0] * pow(double(v_dot_r), 20.0)) + sphere_ambient[0] * light_ambient[0] + sphere_ambient[0] * global_a[0];
-		inters_c[1] = (sphere_diffuse[1] * light_diffuse[1] * n_dot_l + sphere_specular[1] * light_specular[1] * pow(double(v_dot_r), 20.0)) + sphere_ambient[1] * light_ambient[1] + sphere_ambient[1] * global_a[1];
-		inters_c[2] = (sphere_diffuse[2] * light_diffuse[2] * n_dot_l + sphere_specular[2] * light_specular[2] * pow(double(v_dot_r), 20.0)) + sphere_ambient[2] * light_ambient[2] + sphere_ambient[2] * global_a[2];
-	}
-	else                // punkt nie jest oświetlany, uwzględniane jest tylko światło rozproszone  
-	{
-		inters_c[0] = sphere_ambient[0] * global_a[0];
-		inters_c[1] = sphere_ambient[1] * global_a[1];
-		inters_c[2] = sphere_ambient[2] * global_a[2];
-	}
-}
-
-/**
- * \brief Funkcja przeprowadza normalizację wektora
- * \param p wektor do znormalizowania
- */
-void normalization(point p)
-{
-	float d = 0.0;
-	int i;
-
-	for (i = 0; i < 3; i++)
-		d += p[i] * p[i];
-
-	d = sqrt(d);
-
-	if (d > 0.0)
-		for (i = 0; i < 3; i++)
-			p[i] /= d;
-}
-
-/**
- * \brief Funkcja oblicza iloczyn skalarny wektorów
- * \param p1 wektor1
- * \param p2 wektor2
- * \return iloczyn skalarny
- */
-float dot_product(point p1, point p2)
-{
-	return (p1[0] * p2[0] + p1[1] * p2[1] + p1[2] * p2[2]);
-}
-
-bool trace(const Vec3f& orig, const Vec3f& dir, float& dist_nearest, const object* &hit_object)
-{
-	dist_nearest = kInfinity;
-	std::vector<std::unique_ptr<object>>::const_iterator iter = objects.begin();
-	for (; iter != objects.end(); ++iter) {
-		auto t = kInfinity;
-		if ((*iter)->intersect(orig, dir, t) && t < dist_nearest) {
-			hit_object = iter->get();
-			dist_nearest = t;
+		auto t0 = kInfinity, t1 = kInfinity;
+		if (object->intersect(orig, dir, t0, t1)) {
+			if (t0 < 0) t0 = t1;
+			if (t0 < t_nearest) {
+				hit_object = object.get();
+				t_nearest = t0;
+			}
 		}
 	}
 	return (hit_object != nullptr);
 }
 
 inline
-Vec3f mix(const Vec3f &a, const Vec3f& b, const float &mixValue)
+Vec3f mix(const Vec3f &a, const Vec3f& b, const float &mix_val)
 {
-	return a * (1 - mixValue) + b * mixValue;
+	return a * (1 - mix_val) + b * mix_val;
 }
 
-Vec3f cast_ray(const Vec3f& orig, const Vec3f& dir)
+inline
+float mix(const float &a, const float &b, const float &mix_val)
 {
-	Vec3f hit_color = 0;
-	const object *hit_object = nullptr; // this is a pointer to the hit object
-	float dist; // this is the intersection distance from the ray origin to the hit point
-	
-	if (trace(orig, dir, dist, hit_object)) {
-		auto point_hit = orig + dir * dist;
-		Vec3f normal_hit;
-		Vec2f tex;
-		hit_object->get_surface_data(point_hit, normal_hit, tex);
-		// Use the normal and texture coordinates to shade the hit point.
-		// The normal is used to compute a simple facing ratio and the texture coordinate
-		// to compute a basic checker board pattern
-		float scale = 4;
-		float pattern = (fmodf(tex.x * scale, 1) > 0.5) ^ (fmodf(tex.y * scale, 1) > 0.5);
-		hit_color = std::max(0.f, normal_hit.dotProduct(-dir)) * mix(hit_object->color, hit_object->color * 0.8, pattern);
-	}
-
-	return hit_color;
+	return a * (1 - mix_val) + b * mix_val;
 }
 
 inline
@@ -274,9 +62,96 @@ float clamp(const float &lo, const float &hi, const float &v)
 	return std::max(lo, std::min(hi, v));
 }
 
-/**
- * \brief Funkcja rysująca obraz oświetlonej sceny
- */
+Vec3f reflect(const Vec3f& dir, const Vec3f& n)
+{
+	return dir - 2 * dir.dotProduct(n) * n;
+}
+
+Vec3f phong(const object* &hit_object, const Vec3f &point_hit, const Vec3f normal_hit, const Vec3f &dir)
+{
+	Vec3f diffuse = hit_object->surface_color * ambient_intensity, specular = 0;
+	for (auto& light : lights)
+	{
+		Vec3f light_dir, light_intensity;
+		float dist;
+		light->illuminate(point_hit, light_dir, light_intensity, dist);
+
+		const object * covering_obj = nullptr;
+		float dist_to_covering_obj;
+		const auto visible = !trace(point_hit + normal_hit * bias, -light_dir, dist_to_covering_obj, covering_obj);
+
+		// compute the diffuse component
+		if (visible)
+		{
+			diffuse += hit_object->surface_color * hit_object->albedo * light_intensity * std::max(0.f, normal_hit.dotProduct(-light_dir));
+
+			// compute the specular component
+			// what would be the ideal reflection direction for this light ray
+			auto reflected = reflect(light_dir, normal_hit);
+			specular += light_intensity * std::pow(std::max(0.f, reflected.dotProduct(-dir)), hit_object->n);
+		}
+	}
+	return diffuse * hit_object->Kd + specular * hit_object->Ks;
+}
+
+Vec3f cast_ray(const Vec3f& orig, const Vec3f& dir, const int& depth)
+{
+	auto hit_color = background_color;
+	const object *hit_object = nullptr; // this is a pointer to the hit object
+	float dist; // this is the intersection distance from the ray origin to the hit point
+	
+	if (trace(orig, dir, dist, hit_object)) {
+		const auto point_hit = orig + dir * dist;
+		Vec3f normal_hit;
+		hit_object->get_surface_data(point_hit, normal_hit);
+		
+		auto inside = false;
+		if (dir.dotProduct(normal_hit) > 0)
+			normal_hit = -normal_hit, inside = true;
+
+		hit_color += phong(hit_object, point_hit, normal_hit, dir);
+
+		if (hit_object->material != diffuse)
+		{
+			if ((hit_object->transparency > 0 || hit_object->reflection > 0) && depth < MAX_RAY_DEPTH)
+			{
+				const auto facing_ratio = -dir.dotProduct(normal_hit);
+
+				// change the mix value to tweak the effect
+				const auto fresnel_effect = mix(pow(1 - facing_ratio, 3), 1, 0.1);
+
+				// compute reflection direction (not need to normalize because all vectors
+				// are already normalized)
+				auto refl_dir = reflect(dir, normal_hit);
+				refl_dir.normalize();
+				const auto reflection = cast_ray(point_hit + normal_hit * bias, refl_dir, depth + 1);
+
+				Vec3f refraction = 0;
+				// if the sphere is also transparent compute refraction ray (transmission)
+				if (hit_object->transparency) {
+					float ior = 1.4, eta = inside ? ior : 1 / ior; // are we inside or outside the surface?
+					auto cosi = -normal_hit.dotProduct(dir);
+					auto k = 1 - eta * eta * (1 - cosi * cosi);
+					auto refr_dir = dir * eta + normal_hit * (eta *  cosi - sqrt(k));
+					refr_dir.normalize();
+					refraction = cast_ray(point_hit - normal_hit * bias, refr_dir, depth + 1);
+				}
+
+				// the result is a mix of reflection and refraction (if the sphere is transparent)
+				hit_color = (
+					reflection * fresnel_effect +
+					refraction * (1 - fresnel_effect) * hit_object->transparency
+					) * hit_object->surface_color;
+			}
+		}
+
+		return hit_color;
+	}
+
+	return hit_color;
+}
+
+
 void display()
 {
 	int  x, y;               // pozycja rysowanego piksela "całkowitoliczbowa"
@@ -291,12 +166,7 @@ void display()
 	glFlush();
 
 	auto aspect_ratio = image_width / static_cast<float>(image_height); // assuming width > height
-
-	/*unsigned width = im_size, height = im_size;
-	auto inv_width = 1 / float(width), inv_height = 1 / float(height);
-	float fov = 30, aspect_ratio = width / float(height);
-	float angle = tan(M_PI * 0.5 * fov / 180.);*/
-
+	
 	auto framebuffer = new Vec3f[image_width * image_height];
 	auto pixs = framebuffer;
 
@@ -310,47 +180,23 @@ void display()
 
 			x_fl = (float)x / (im_size / viewport_size);
 			y_fl = (float)y / (im_size / viewport_size);
-
-			/*float xx = (2 * ((x + 0.5) * inv_width) - 1) * angle * aspect_ratio;
-			float yy = (1 - 2 * ((y + 0.5) * inv_height)) * angle;
-			Vec3f ray_dir(xx, yy, -1);
-			ray_dir.normalize();*/
-
-
-			/*float Px = (2 * (x + 0.5) / (float)image_width - 1) * tan(fov / 2 * M_PI / 180) * aspect_ratio;
-			float Py = (1 - 2 * (y + 0.5) / (float)image_height) * tan(fov / 2 * M_PI / 180);*/
-
+			
 			float Px = x_fl * tan(fov / 2 * M_PI / 180) * aspect_ratio;
 			float Py = y_fl * tan(fov / 2 * M_PI / 180);
 			Vec3f ray_origin(0);
 			auto ray_direction = Vec3f(Px, Py, -1) - ray_origin; // note that this just equal to Vec3f(Px, Py, -1);
 			ray_direction.normalize();	// it's a direction so don't forget to normalize 
 
-			// przeliczenie pozycji(x,y) w pikselach na pozycję "zmiennoprzecinkową" w oknie obserwatora
-
-			/*starting_point[0] = x_fl;
-			starting_point[1] = y_fl;
-			starting_point[2] = viewport_size;*/
-
-			//Vec3f orig{ x_fl, y_fl, viewport_size };
-			//Vec3f dir{ 0.0, 0.0, -1.0 };
-			//auto pix = cast_ray(orig, dir);
-			auto pix = cast_ray(Vec3f(0), ray_direction);
+			auto pix = cast_ray(Vec3f(0), ray_direction, 0);
 
 			*(pixs++) = pix;
 			
-
 			pixel[0][0][0] = 255 * clamp(0, 1, pix[0]);
 			pixel[0][0][1] = 255 * clamp(0, 1, pix[1]);
 			pixel[0][0][2] = 255 * clamp(0, 1, pix[2]);
 
 			glRasterPos3f(x_fl, y_fl, 0);
-
-			// inkrementacja pozycji rastrowej dla rysowania piksela
-
 			glDrawPixels(1, 1, GL_RGB, GL_UNSIGNED_BYTE, pixel);
-
-			// narysowanie kolejnego piksela na ekranie
 		}
 	}
 	glFlush();
@@ -370,9 +216,83 @@ void display()
 	delete[] framebuffer;
 }
 
-/**
- * \brief Funkcja inicjalizująca definiująca sposób rzutowania
- */
+void setup_scene1()
+{
+	// generate a scene made of random spheres
+	const uint32_t num_spheres = 20;
+	gen.seed(0);
+	//lights
+	lights.push_back(std::unique_ptr<light>(std::make_unique<distant_light>(
+		Vec3f(-0.5, -0.5, 0), 1, 5)));
+
+	lights.push_back(std::unique_ptr<light>(std::make_unique<point_light>(
+		Vec3f(0, 4, -1), 1, 1000)));
+
+	for (uint32_t i = 0; i < num_spheres; ++i) {
+		Vec3f rand_pos((0.5 - dis(gen)) * 10, (0.5 - dis(gen)) * 10, -1 - dis(gen) * 10);
+		float rand_radius = (0.5 + dis(gen) * 0.5);
+		float refl = dis(gen);
+		objects.push_back(std::unique_ptr<object>(
+			std::make_unique<sphere>(rand_pos, rand_radius, Vec3f(dis(gen), dis(gen), dis(gen)), glass, refl, 1-refl)));
+	}
+}
+
+void setup_scene2()
+{
+	gen.seed();
+
+	//lights
+	lights.push_back(std::unique_ptr<light>(std::make_unique<distant_light>(
+		Vec3f(0, -1, 0), 1, 0.7)));
+
+	lights.push_back(std::unique_ptr<light>(std::make_unique<point_light>(
+		Vec3f(0, 4, -1), 1, 1000)));
+
+	lights.push_back(std::unique_ptr<light>(std::make_unique<point_light>(
+		Vec3f(-2, 10, -13), 1, 1000)));
+
+	//main sphere
+	objects.push_back(std::unique_ptr<object>(std::make_unique<sphere>(
+		Vec3f(0, 1, -7), 3.0,
+		Vec3f(1, 0.9, 0.1), glass, 0.1, 0.9)));
+	
+	//inside
+	objects.push_back(std::unique_ptr<object>(std::make_unique<sphere>(
+		Vec3f(0, 1, -7), 1,
+		Vec3f(1,0.84,0),glass)));
+	
+	//reflective spheres
+	objects.push_back(std::unique_ptr<object>(std::make_unique<sphere>(
+		Vec3f(-3, -5, -3), 4,
+		Vec3f(0.5, 0.7, 1),glass,1)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<sphere>(
+		Vec3f(18, -12, -25), 25,
+		Vec3f(0.4, 0.5, 0.8), glass, 1)));
+
+	//triangle
+	objects.push_back(std::unique_ptr<object>(std::make_unique<cylinder>(
+		Vec3f(-2, -3, -5), Vec3f(5, 5, -9), 0.5,
+		Vec3f(0.8, 0.1, 0.1),glass,1,1)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<cylinder>(
+		Vec3f(-2, -3, -5), Vec3f(-5, 4, -9), 0.5,
+		Vec3f(0.8, 0.1, 0.1), glass, 1, 1)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<cylinder>(
+		Vec3f(-5, 4, -9), Vec3f(5, 5, -9), 0.5,
+		Vec3f(0.8, 0.1, 0.1), glass, 1, 1)));
+
+	//planes
+	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
+		Vec3f(0, -4, 0), Vec3f(0.2, 1, 0.3).normalize(),
+		Vec3f(0.8, 1, 1), metal, 1)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
+		Vec3f(0, 0, -20), Vec3f(-0.2, 1, 1).normalize(),
+		Vec3f(0, 1, 1), metal, 1)));
+}
+
 void my_init(void)
 {
 	glMatrixMode(GL_PROJECTION);
@@ -380,18 +300,8 @@ void my_init(void)
 	glOrtho(-viewport_size / 2, viewport_size / 2, -viewport_size / 2, viewport_size / 2, -viewport_size / 2, viewport_size / 2);
 	glMatrixMode(GL_MODELVIEW);
 	
-	// generate a scene made of random spheres
-	const uint32_t num_spheres = 32;
-	gen.seed(0);
-
-	for (uint32_t i = 0; i < num_spheres; ++i) {
-		Vec3f rand_pos( (0.5 - dis(gen)) * 10, (0.5 - dis(gen)) * 10, -1 - dis(gen) * 10);
-		float rand_radius = (0.5 + dis(gen) * 0.5);
-		objects.push_back(std::unique_ptr<object>(new sphere(rand_pos, rand_radius)));
-	}
-	//objects.push_back(std::unique_ptr<object>(new sphere(Vec3f(0,0,-2), 1.0)));
+	setup_scene2();
 }
-
 
 int main()
 {

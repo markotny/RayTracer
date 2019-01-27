@@ -19,38 +19,118 @@ bool solve_quadratic(const float &a, const float &b, const float &c, float &x0, 
 	return true;
 }
 
-bool sphere::intersect(const Vec3f & orig, const Vec3f & dir, float & dist) const
+/**
+ * \brief Compute a ray-sphere intersection using the geometric solution
+ */
+bool sphere::intersect(const Vec3f & orig, const Vec3f & dir, float& t0, float& t1) const
 {
-	float x0, x1; // solutions for dist if the ray intersects
-	auto L = orig - center_;
-	auto a = dir.dotProduct(dir);
-	auto b = 2 * dir.dotProduct(L);
-	auto c = L.dotProduct(L) - radius2_;
+	auto l = center - orig;
+	auto tca = l.dotProduct(dir);
+	if (tca < 0) return false;
 
-	if (!solve_quadratic(a, b, c, x0, x1)) return false;
-	if (x0 > x1) std::swap(x0, x1);
+	auto d2 = l.dotProduct(l) - tca * tca;
+	if (d2 > radius2) return false;
 
-	if (x0 < 0) {
-		x0 = x1; // if t0 is negative, let's use t1 instead
-		if (x0 < 0) return false; // both t0 and t1 are negative
-	}
-
-	dist = x0;
+	auto thc = sqrt(radius2 - d2);
+	t0 = tca - thc;
+	t1 = tca + thc;
 
 	return true;
 }
 
-void sphere::get_surface_data(const Vec3f& point_hit, Vec3f& normal_hit, Vec2f& tex) const
+void sphere::get_surface_data(const Vec3f& point_hit, Vec3f& normal_hit) const
 {
-	normal_hit = point_hit - center_;
+	normal_hit = point_hit - center;
 	normal_hit.normalize();
-	// In this particular case, the normal is similar to a point on a unit sphere
-	// centered around the origin. We can thus use the normal coordinates to compute
-	// the spherical coordinates of Phit.
-	// atan2 returns a value in the range [-pi, pi] and we need to remap it to range [0, 1]
-	// acosf returns a value in the range [0, pi] and we also need to remap it to the range [0, 1]
-	tex.x = (1 + atan2(normal_hit.z, normal_hit.x) / M_PI) * 0.5;
-	tex.y = acosf(normal_hit.y) / M_PI;
+}
+
+bool plane::intersect(const Vec3f& orig, const Vec3f& dir, float& t0, float& t1) const
+{
+	// assuming vectors are all normalized
+	const auto denom = dir.dotProduct(normal);
+	if (denom > 1e-6 || denom < -1e-6) {
+		auto p0_orig = p0 - orig;
+		t0 = p0_orig.dotProduct(normal) / denom;
+		t1 = t0;
+		return t0 >= 0;
+	}
+
+	return false;
+}
+
+void plane::get_surface_data(const Vec3f& point_hit, Vec3f& normal_hit) const
+{
+	normal_hit = normal;
+}
+
+bool cylinder::intersect(const Vec3f& p1, const Vec3f& d1, float& t0, float& t1) const
+{
+	auto AB = pk - p0;
+	auto AO = p1 - p0;
+	auto AOxAB = AO.crossProduct(AB);
+	auto VxAB = d1.crossProduct(AB);
+	auto ab2 = AB.dotProduct(AB);
+	auto a = VxAB.dotProduct(VxAB);
+	auto b = 2 * VxAB.dotProduct(AOxAB);
+	auto c = AOxAB.dotProduct(AOxAB) - radius2 * ab2;
+	if (!solve_quadratic(a, b, c, t0, t1))
+		return false;
+
+	if (t0 > t1)
+		std::swap(t0, t1);
+
+	const auto dt0 = (p1 + t0 * d1 - p0).dotProduct(d0) * d0;
+	const auto dt1 = (p1 + t1 * d1 - p0).dotProduct(d0) * d0;
+
+	if (dt0.length() > (pk - p0).length())
+	{
+		if (dt1.length() > (pk - p0).length())
+			return false;
+
+		auto denom = d1.dotProduct(d0);
+		auto p_p1 = pk - p1;
+		t0 = p_p1.dotProduct(d0) / denom;
+
+		if (dt1.dotProduct(d0) < 0)
+		{
+			denom = d1.dotProduct(-d0);
+			p_p1 = p0 - p1;
+			t1 = p_p1.dotProduct(-d0) / denom;
+		}
+	}
+
+	if (dt0.dotProduct(d0) < 0)
+	{
+		if (dt1.dotProduct(d0) < 0)
+			return false;
+
+		auto denom = d1.dotProduct(-d0);
+		auto p_p1 = p0 - p1;
+		t0 = p_p1.dotProduct(-d0) / denom;
+
+		if (dt1.length() > (pk-p0).length())
+		{
+			denom = d1.dotProduct(d0);
+			p_p1 = pk - p1;
+			t1 = p_p1.dotProduct(d0) / denom;
+		}
+	}
+	return true;
+}
+
+void cylinder::get_surface_data(const Vec3f& point_hit, Vec3f& normal_hit) const
+{
+	const auto c0 = p0 + (point_hit - p0).dotProduct(d0) * d0;
+	if ((c0 - p0).length() < 1e-4)	// point on bottom or top of cylinder
+		normal_hit = -d0;
+	else if ((c0 - pk).length() < 1e-4)
+		normal_hit = d0;
+	else
+	{
+		normal_hit = point_hit - c0;
+		normal_hit.normalize();
+	}
+	//std::cout << point_hit << ": " << c0 << "->" << normal_hit << std::endl;
 }
 
 

@@ -31,6 +31,8 @@
 #pragma once
 #include "pch.h"
 
+const float kInfinity = std::numeric_limits<float>::max();
+
 template<typename T>
 class Vec2
 {
@@ -76,28 +78,43 @@ public:
     Vec3() : x(T(0)), y(T(0)), z(T(0)) {}
     Vec3(T xx) : x(xx), y(xx), z(xx) {}
     Vec3(T xx, T yy, T zz) : x(xx), y(yy), z(zz) {}
+
     Vec3 operator + (const Vec3 &v) const
     { return Vec3(x + v.x, y + v.y, z + v.z); }
+
     Vec3 operator - (const Vec3 &v) const
     { return Vec3(x - v.x, y - v.y, z - v.z); }
+
     Vec3 operator - () const
     { return Vec3(-x, -y, -z); }
+
     Vec3 operator * (const T &r) const
     { return Vec3(x * r, y * r, z * r); }
+
     Vec3 operator * (const Vec3 &v) const
     { return Vec3(x * v.x, y * v.y, z * v.z); }
+
     T dotProduct(const Vec3<T> &v) const
     { return x * v.x + y * v.y + z * v.z; }
+
     Vec3& operator /= (const T &r)
     { x /= r, y /= r, z /= r; return *this; }
+
     Vec3& operator *= (const T &r)
     { x *= r, y *= r, z *= r; return *this; }
+
+	Vec3<T>& operator += (const Vec3<T> &v)
+	{ x += v.x, y += v.y, z += v.z; return *this; }
+
     Vec3 crossProduct(const Vec3<T> &v) const
     { return Vec3<T>(y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x); }
+
     T norm() const
     { return x * x + y * y + z * z; }
+
     T length() const
     { return sqrt(norm()); }
+
     //[comment]
     // The next two operators are sometimes called access operators or
     // accessors. The Vec coordinates can be accessed that way v[0], v[1], v[2],
@@ -120,6 +137,7 @@ public:
 
     friend Vec3 operator * (const T &r, const Vec3 &v)
     { return Vec3<T>(v.x * r, v.y * r, v.z * r); }
+
     friend Vec3 operator / (const T &r, const Vec3 &v)
     { return Vec3<T>(r / v.x, r / v.y, r / v.z); }
 
@@ -137,6 +155,11 @@ public:
 //[/comment]
 typedef Vec3<float> Vec3f;
 typedef Vec3<int> Vec3i;
+
+inline bool operator==(const Vec3f& lhs, const Vec3f& rhs)
+{
+	return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.x;
+}
 
 //[comment]
 // Implementation of a generic 4x4 Matrix class - Same thing here than with the Vec3 class. It uses
