@@ -130,7 +130,6 @@ void cylinder::get_surface_data(const Vec3f& point_hit, Vec3f& normal_hit) const
 		normal_hit = point_hit - c0;
 		normal_hit.normalize();
 	}
-	//std::cout << point_hit << ": " << c0 << "->" << normal_hit << std::endl;
 }
 
 

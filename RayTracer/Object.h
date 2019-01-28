@@ -8,9 +8,9 @@ static std::uniform_real_distribution<> dis(0, 1);
 
 enum material_type
 {
-	diffuse, //phong
-	glass, // refraction + reflection
-	metal // phong + reflection
+	diffuse,
+	glass,
+	metal
 };
 
 class object

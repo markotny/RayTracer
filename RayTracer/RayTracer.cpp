@@ -10,17 +10,17 @@
 #include "Object.h"
 #include "light.h"
 
-#define MAX_RAY_DEPTH 5
+int max_ray_depth(5);
 std::vector<std::unique_ptr<object>> objects;
 std::vector<std::unique_ptr<light>> lights;
-Vec3f background_color(0.8);
-float ambient_intensity(0.4);
+Vec3f background_color(0.4);
+float ambient_intensity(0.2);
 float bias = 1e-4; // add some bias to the point from which we will be tracing
 
 int im_size = 800;
 
-int image_width = 800;
-int image_height = 800;
+int image_width = im_size;
+int image_height = im_size;
 float fov = 50;
 
 float viewport_size = 3.0;
@@ -109,11 +109,12 @@ Vec3f cast_ray(const Vec3f& orig, const Vec3f& dir, const int& depth)
 		if (dir.dotProduct(normal_hit) > 0)
 			normal_hit = -normal_hit, inside = true;
 
-		hit_color += phong(hit_object, point_hit, normal_hit, dir);
+		if (hit_object->material == diffuse)
+			hit_color += phong(hit_object, point_hit, normal_hit, dir);
 
-		if (hit_object->material != diffuse)
+		else
 		{
-			if ((hit_object->transparency > 0 || hit_object->reflection > 0) && depth < MAX_RAY_DEPTH)
+			if ((hit_object->transparency > 0 || hit_object->reflection > 0) && depth < max_ray_depth)
 			{
 				const auto facing_ratio = -dir.dotProduct(normal_hit);
 
@@ -138,16 +139,14 @@ Vec3f cast_ray(const Vec3f& orig, const Vec3f& dir, const int& depth)
 				}
 
 				// the result is a mix of reflection and refraction (if the sphere is transparent)
-				hit_color = (
+				hit_color += (
 					reflection * fresnel_effect +
 					refraction * (1 - fresnel_effect) * hit_object->transparency
 					) * hit_object->surface_color;
 			}
+			hit_color += std::max(0.1, 1.0 - hit_object->transparency - hit_object->reflection) * phong(hit_object, point_hit, normal_hit, dir);
 		}
-
-		return hit_color;
 	}
-
 	return hit_color;
 }
 
@@ -172,10 +171,9 @@ void display()
 
 	// rysowanie pikseli od lewego górnego narożnika do prawego dolnego narożnika
 
-	uint32_t j = 0, i = 0;
-	for (y = im_size_2; y > -im_size_2; y--, j++)
+	for (y = im_size_2; y > -im_size_2; y--)
 	{
-		for (x = -im_size_2; x < im_size_2; x++, i++)
+		for (x = -im_size_2; x < im_size_2; x++)
 		{
 
 			x_fl = (float)x / (im_size / viewport_size);
@@ -218,32 +216,72 @@ void display()
 
 void setup_scene1()
 {
-	// generate a scene made of random spheres
-	const uint32_t num_spheres = 20;
-	gen.seed(0);
+	background_color = 0.2;
+	ambient_intensity = 0.1;
+
 	//lights
 	lights.push_back(std::unique_ptr<light>(std::make_unique<distant_light>(
-		Vec3f(-0.5, -0.5, 0), 1, 5)));
+		Vec3f(0, 0, -1), 1, 0.2)));
 
 	lights.push_back(std::unique_ptr<light>(std::make_unique<point_light>(
-		Vec3f(0, 4, -1), 1, 1000)));
+		Vec3f(0, 0, -4), 1, 100)));
 
-	for (uint32_t i = 0; i < num_spheres; ++i) {
-		Vec3f rand_pos((0.5 - dis(gen)) * 10, (0.5 - dis(gen)) * 10, -1 - dis(gen) * 10);
-		float rand_radius = (0.5 + dis(gen) * 0.5);
-		float refl = dis(gen);
-		objects.push_back(std::unique_ptr<object>(
-			std::make_unique<sphere>(rand_pos, rand_radius, Vec3f(dis(gen), dis(gen), dis(gen)), glass, refl, 1-refl)));
-	}
+	//sphere
+	objects.push_back(std::unique_ptr<object>(std::make_unique<sphere>(
+		Vec3f(2, 0, -2), 1,
+		Vec3f(1, 0, 1), metal, 1, 0)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<sphere>(
+		Vec3f(-2, 0, -2), 1,
+		Vec3f(1, 0, 1), metal, 1, 0)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<sphere>(
+		Vec3f(0, 2, -2), 1,
+		Vec3f(1, 0, 1), metal, 1, 0)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<sphere>(
+		Vec3f(0, -2, -2), 1,
+		Vec3f(1, 0, 1), metal, 1, 0)));
+
+	//planes
+	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
+		Vec3f(0, 0, -6), Vec3f(1, 0, 1).normalize(),
+		Vec3f(1, 0.9, 0.9), glass, 0.1, 0.9)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
+		Vec3f(0, 0, -6), Vec3f(-1, 0, 1).normalize(),
+		Vec3f(1, 0.9, 0.9), glass, 0.1, 0.9)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
+		Vec3f(0, 0, -6), Vec3f(0, 1, 1).normalize(),
+		Vec3f(1, 0.9, 0.9), glass, 0.1, 0.9)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
+		Vec3f(0, 0, -6), Vec3f(0, -1, 1).normalize(),
+		Vec3f(1, 0.9, 0.9), glass, 0.1, 0.9)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
+		Vec3f(0, 0, -7), Vec3f(0, 0, -1).normalize(),
+		Vec3f(1,0.9,0.9), glass, 0.1, 0.9)));
+
+	//cylinder
+	objects.push_back(std::unique_ptr<object>(std::make_unique<cylinder>(
+		Vec3f(-10, 0, -3.5), Vec3f(10, 0, -3), 0.2,
+		Vec3f(1, 0.84, 0), glass, 1, 1)));
+
+	objects.push_back(std::unique_ptr<object>(std::make_unique<cylinder>(
+		Vec3f(0, -10, -3.5), Vec3f(0, 10, -3), 0.2,
+		Vec3f(1, 0.84, 0), glass, 1, 1)));
 }
 
 void setup_scene2()
 {
-	gen.seed();
+	background_color = 0.05;
+	ambient_intensity = 0.1;
 
 	//lights
 	lights.push_back(std::unique_ptr<light>(std::make_unique<distant_light>(
-		Vec3f(0, -1, 0), 1, 0.7)));
+		Vec3f(0, -1, 0), 1, 0.2)));
 
 	lights.push_back(std::unique_ptr<light>(std::make_unique<point_light>(
 		Vec3f(0, 4, -1), 1, 1000)));
@@ -286,11 +324,11 @@ void setup_scene2()
 	//planes
 	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
 		Vec3f(0, -4, 0), Vec3f(0.2, 1, 0.3).normalize(),
-		Vec3f(0.8, 1, 1), metal, 1)));
+		Vec3f(0.8, 1, 1), diffuse, 1)));
 
 	objects.push_back(std::unique_ptr<object>(std::make_unique<plane>(
 		Vec3f(0, 0, -20), Vec3f(-0.2, 1, 1).normalize(),
-		Vec3f(0, 1, 1), metal, 1)));
+		Vec3f(0, 1, 1), diffuse, 1)));
 }
 
 void my_init(void)
